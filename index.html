@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>空いてるくん</title>
+
+<style>
+body{
+    font-family:sans-serif;
+    margin:20px;
+}
+
+h1{
+    margin-bottom:15px;
+}
+
+#calendar{
+    overflow:auto;
+    border:1px solid #ccc;
+    max-height:85vh;
+}
+
+table{
+    border-collapse:collapse;
+    font-size:12px;
+}
+
+th,td{
+    border:1px solid #ddd;
+    text-align:center;
+}
+
+.time{
+    width:60px;
+    background:#f5f5f5;
+    font-weight:bold;
+
+    /* 月曜日との境界 */
+    border-right:3px solid #666;
+}
+
+.room{
+    width:24px;
+    height:28px;
+    cursor:pointer;
+}
+
+/* ========================================
+   予約バー
+   ======================================== */
+
+.booking{
+    cursor:pointer;
+}
+
+.booking-bar{
+    border-top:none !important;
+    border-bottom:none !important;
+}
+
+.booking-start{
+    border-bottom:none !important;
+    border-radius:6px 6px 0 0;
+}
+
+.booking-end{
+    border-top:none !important;
+    border-radius:0 0 6px 6px;
+}
+
+.booking-single{
+    border-radius:6px;
+}
+
+/* ========================================
+   月曜日の左枠
+   ======================================== */
+
+.day-first{
+    border-left:3px solid #666 !important;
+}
+
+/* ========================================
+   曜日ヘッダ
+   ======================================== */
+.day-header{
+    background:#d9d9d9;
+    font-size:16px;
+    font-weight:bold;
+
+    border:3px solid #666;
+}
+
+/* ========================================
+   曜日区切り
+   ======================================== */
+
+.day-separator{
+    border-right:3px solid #666 !important;
+}
+
+.room-header{
+    background:#f0f0f0;
+    font-size:14px;
+    font-weight:bold;
+}
+
+.roomA{ background:#ffb3b3; }
+.roomB{ background:#b3d9ff; }
+.roomC{ background:#fff0a8; }
+.roomD{ background:#bdf5bd; }
+.roomE{ background:#d9c2ff; }
+
+.room:hover{
+    outline:2px solid #333;
+}
+</style>
+</head>
+<body>
+
+<h1>空いてるくん β版</h1>
+
+<button onclick="logout()">
+ログアウト
+</button>
+
+<div id="weekControl">
+
+    <button onclick="changeWeek(-1)">
+        ← 前週
+    </button>
+
+    <span id="weekLabel"></span>
+
+    <button onclick="changeWeek(1)">
+        次週 →
+    </button>
+
+</div>
+
+<div id="calendar"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+
+// ========================================
+// 週切替
+// ========================================
+function changeWeek(offset){
+
+    currentWeekStart.setDate(
+        currentWeekStart.getDate()
+        + (offset * 7)
+    );
+
+    render();
+
+}
+
+// ========================================
+// 週ラベル更新
+// ========================================
+function updateWeekLabel(){
+
+    const endDate =
+        new Date(currentWeekStart);
+
+    endDate.setDate(
+        endDate.getDate() + 4
+    );
+
+    const text =
+        `${currentWeekStart.getFullYear()}/`
+        + `${String(currentWeekStart.getMonth()+1).padStart(2,"0")}/`
+        + `${String(currentWeekStart.getDate()).padStart(2,"0")}`
+        + " ～ "
+        + `${String(endDate.getMonth()+1).padStart(2,"0")}/`
+        + `${String(endDate.getDate()).padStart(2,"0")}`;
+
+    const label =
+        document.getElementById("weekLabel");
+
+    if(label){
+        label.textContent = text;
+    }
+
+}
+
+// ========================================
+// 表示中の週
+// 今日を含む週を初期表示
+// ========================================
+let currentWeekStart = getMonday(new Date());
+
+// ========================================
+// 日付表示用
+// 例: 06/22(月)
+// ========================================
+function formatDate(date, dayName){
+
+    const month =
+        String(date.getMonth() + 1)
+        .padStart(2,"0");
+
+    const day =
+        String(date.getDate())
+        .padStart(2,"0");
+
+    return `${month}/${day}(${dayName})`;
+
+}
+
+// ========================================
+// 日付キー作成
+// 例: 2026-06-23
+// ========================================
+function createDateKey(date){
+
+    const year = date.getFullYear();
+
+    const month =
+        String(date.getMonth() + 1)
+        .padStart(2,"0");
+
+    const day =
+        String(date.getDate())
+        .padStart(2,"0");
+
+    return `${year}-${month}-${day}`;
+
+}
+
+const days = ["月","火","水","木","金"];
+const rooms = ["A","B","C","D","E"];
+
+// ========================================
+// 共通パスワード
+// ========================================
+const APP_PASSWORD = "aiterukun";
+
+// ========================================
+// Supabase
+// ========================================
+const SUPABASE_URL =
+    "https://hvmreiucdyvbjteqyzvc.supabase.co";
+
+const SUPABASE_KEY =
+    "sb_publishable_rGJsRFqTU8fkPY0HrlOo8g_8gSSkAZH";
+
+const sb =
+    window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_KEY
+    );
+
+// ========================================
+// 予約データ
+// LocalStorageに保存済みならそれを使用
+// ========================================
+let bookings = [];
+
+function createTimes(){
+
+    const list=[];
+
+    for(let h=9; h<=17; h++){
+
+        list.push(
+            String(h).padStart(2,"0")+":00"
+        );
+
+        if(h!==17){
+
+            list.push(
+                String(h).padStart(2,"0")+":30"
+            );
+
+        }
+    }
+
+    return list;
+}
+
+const times=createTimes();
+
+function timeToMinutes(t){
+
+    const [h,m]=t.split(":");
+
+    return Number(h)*60+Number(m);
+
+}
+
+// ========================================
+// 指定時間に分を加算
+// 例: 09:30 + 30分 → 10:00
+// ========================================
+function addMinutes(time, minutes){
+
+    const [h,m] = time.split(":").map(Number);
+
+    const total = h * 60 + m + minutes;
+
+    const newHour = Math.floor(total / 60);
+    const newMinute = total % 60;
+
+    return (
+        String(newHour).padStart(2,"0")
+        + ":"
+        + String(newMinute).padStart(2,"0")
+    );
+
+}
+
+// ========================================
+// 指定日の週の月曜日を取得
+// ========================================
+function getMonday(date){
+
+    const d = new Date(date);
+
+    const day = d.getDay();
+
+    const diff =
+        day === 0
+        ? -6
+        : 1 - day;
+
+    d.setDate(d.getDate() + diff);
+
+    d.setHours(0,0,0,0);
+
+    return d;
+
+}
+
+function findBooking(dateKey,room,time){
+
+    const current=timeToMinutes(time);
+
+    return bookings.find(b=>{
+
+        if(b.date !== dateKey) return false;
+        if(b.room !== room) return false;
+
+        return (
+            current >= timeToMinutes(b.start)
+            &&
+            current < timeToMinutes(b.end)
+        );
+
+    });
+
+}
+
+// ========================================
+// LocalStorageへ保存
+// ========================================
+function saveBookings(){
+}
+
+// ========================================
+// Supabaseへ予約保存
+// ========================================
+async function saveBookingToSupabase(booking){
+
+    const { error } =
+        await sb
+            .from("bookings")
+            .insert([
+                {
+                    booking_date: booking.date,
+                    room: booking.room,
+                    start_time: booking.start,
+                    end_time: booking.end,
+                    name: booking.name,
+                    purpose: booking.purpose
+                }
+            ]);
+
+    console.log("保存エラー", error);
+
+}
+
+// ========================================
+// Supabaseから予約削除
+// ========================================
+async function deleteBookingFromSupabase(
+    dateKey,
+    room,
+    start,
+    end,
+    name,
+    purpose
+){
+
+    const { error } =
+        await sb
+            .from("bookings")
+            .delete()
+            .match({
+                booking_date: dateKey,
+                room: room,
+                start_time: start,
+                end_time: end,
+                name: name,
+                purpose: purpose
+            });
+
+    console.log(
+        "削除エラー",
+        error
+    );
+
+}
+
+// ========================================
+// ログイン状態確認
+// ========================================
+function isLoggedIn(){
+
+    return localStorage.getItem("loggedIn")
+        === "true";
+
+}
+
+// ========================================
+// パスワード認証
+// ========================================
+function authenticate(){
+
+    const password = prompt(
+        "パスワードを入力してください"
+    );
+
+    if(password !== APP_PASSWORD){
+
+        alert("パスワードが違います");
+
+        return false;
+    }
+
+    // ログイン状態保存
+    localStorage.setItem(
+        "loggedIn",
+        "true"
+    );
+
+    return true;
+
+}
+
+// ========================================
+// ログアウト
+// ========================================
+function logout(){
+
+    localStorage.removeItem(
+        "loggedIn"
+    );
+
+    location.reload();
+
+}
+
+function render(){
+
+    let html="<table>";
+
+    html+="<tr>";
+
+        // ========================================
+    // 曜日ヘッダ
+    // ========================================
+
+    html+="<tr>";
+
+    // 左上の空白セル
+    html+='<th class="time"></th>';
+
+    for(let i=0;i<days.length;i++){
+
+        const dayName = days[i];
+
+        const date = new Date(currentWeekStart);
+
+        date.setDate(
+            currentWeekStart.getDate() + i
+        );
+
+        let headerClass = "day-header day-separator";
+
+        if(i === 0){
+            headerClass += " day-first";
+        }
+
+        html += `
+        <th class="${headerClass}" colspan="5">
+            ${formatDate(date, dayName)}
+        </th>
+        `;
+    }
+
+    html+="</tr>";
+
+    html+="<tr>";
+    html+='<th class="time"></th>';
+
+    for(let d=0; d<5; d++){
+
+        for(let i=0;i<rooms.length;i++){
+
+            const room = rooms[i];
+
+            const extraClass =
+            (i === rooms.length - 1)
+        ? "day-separator"
+        : "";
+
+        html+=`
+        <th class="room-header ${extraClass}">
+            ${room}
+        </th>
+        `;
+
+    }
+
+    }
+
+    html+="</tr>";
+
+    for(const time of times){
+
+        html+="<tr>";
+
+        html+=`
+        <td class="time">
+            ${time}
+        </td>
+        `;
+
+        for(const day of days){
+
+            for(let i=0;i<rooms.length;i++){
+
+                const room = rooms[i];
+
+                const extraClass =
+                    (i === rooms.length - 1)
+                    ? "day-separator"
+                    : "";
+
+                const currentDate = new Date(currentWeekStart);
+
+                currentDate.setDate(
+                    currentWeekStart.getDate()
+                    + days.indexOf(day)
+                );
+
+                const dateKey =
+                    createDateKey(currentDate);
+
+                const booking =
+                    findBooking(
+                        dateKey,
+                        room,
+                        time
+                    );
+
+                let bookingClass = "";
+
+                if(booking){
+                
+                    const current =
+                        timeToMinutes(time);
+
+                    const start =
+                        timeToMinutes(booking.start);
+
+                    const end =
+                        timeToMinutes(booking.end);
+
+                    const duration =
+                        end - start;
+
+                    if(duration === 30){
+
+                        bookingClass = "booking-single";
+
+                    }else if(current === start){
+
+                        bookingClass = "booking-start";
+
+                    }else if(current === end - 30){
+
+                        bookingClass = "booking-end";
+
+                    }else{
+
+                        bookingClass = "booking-bar";
+
+                    }
+
+                }
+
+                if(booking){
+
+                    html+=`
+                    <td
+                        class="room room${room} ${extraClass} ${bookingClass}"
+                        title="予約者:${booking.name}&#10;用途:${booking.purpose}&#10;時間:${booking.start}～${booking.end}"
+                        onclick="showBooking(
+                            '${dateKey}',
+                            '${room}',
+                            '${booking.name}',
+                            '${booking.purpose}',
+                            '${booking.start}',
+                            '${booking.end}'
+                        )">
+                    </td>
+                    `;
+
+                }else{
+
+                    html+=`
+                    <td
+                        class="room ${extraClass}"
+                        onclick="addBooking('${dateKey}','${room}','${time}')">
+                    </td>
+                    `;
+
+                }
+
+            }
+
+        }
+
+        html+="</tr>";
+
+    }
+
+    html+="</table>";
+
+    document.getElementById("calendar").innerHTML=html;
+    updateWeekLabel();
+
+}
+
+// ========================================
+// 予約クリック時
+// 詳細表示＋削除確認
+// ========================================
+function showBooking(
+    dateKey,
+    room,
+    name,
+    purpose,
+    start,
+    end
+){
+
+    const action = prompt(
+`日付: ${dateKey}
+施設: ${room}
+
+予約者: ${name}
+用途: ${purpose}
+
+${start} ～ ${end}
+
+1 = 編集
+2 = 削除
+0 = キャンセル`
+    );
+
+    if(action === "1"){
+
+        editBooking(
+            dateKey,
+            room,
+            start,
+            end,
+            name,
+            purpose
+        );
+
+    }else if(action === "2"){
+
+        deleteBooking(
+            dateKey,
+            room,
+            start,
+            end,
+            name,
+            purpose
+        );
+
+    }
+
+}
+
+// ========================================
+// 予約追加
+// ========================================
+async function addBooking(dateKey,room,clickedTime){
+
+    // 開始時間
+    // クリックした時間を初期値として表示
+    const start = prompt(
+        "開始時間 (例 13:30)",
+        clickedTime
+    );
+
+    if(!start) return;
+
+    // 終了時間
+    // 開始時間＋30分を初期値にする
+    const end = prompt(
+        "終了時間 (例 14:00)",
+        addMinutes(start,30)
+    );
+
+    if(!end) return;
+
+    const name = prompt("予約者名");
+
+    if(!name) return;
+
+    const purpose = prompt("用途");
+
+    if(!purpose) return;
+
+    // ========================================
+    // 重複予約チェック
+    // ========================================
+    const overlap = bookings.some(b => {
+
+        if(b.date !== dateKey) return false;
+        if(b.room !== room) return false;
+
+        const newStart = timeToMinutes(start);
+        const newEnd = timeToMinutes(end);
+
+        const oldStart = timeToMinutes(b.start);
+        const oldEnd = timeToMinutes(b.end);
+
+        return (
+            newStart < oldEnd &&
+            newEnd > oldStart
+        );
+
+    });
+
+    if(overlap){
+        alert("その時間帯は既に予約があります");
+        return;
+    }
+
+const newBooking = {
+    date: dateKey,
+    room,
+    start,
+    end,
+    name,
+    purpose
+};
+
+bookings.push(newBooking);
+
+await saveBookingToSupabase(
+    newBooking
+);
+
+render();
+
+}
+
+// ========================================
+// 予約削除
+// ========================================
+async function deleteBooking(
+    dateKey,
+    room,
+    start,
+    end,
+    name,
+    purpose
+){
+
+    // 配列の中から一致する予約を探す
+    const index = bookings.findIndex(b =>
+
+        b.date === dateKey &&
+        b.room === room &&
+        b.start === start &&
+        b.end === end &&
+        b.name === name &&
+        b.purpose === purpose
+
+    );
+
+if(index >= 0){
+
+    await deleteBookingFromSupabase(
+        dateKey,
+        room,
+        start,
+        end,
+        name,
+        purpose
+    );
+
+    bookings.splice(index, 1);
+
+    render();
+
+}
+
+}
+
+// ========================================
+// 予約編集
+// ========================================
+async function editBooking(
+    dateKey,
+    room,
+    start,
+    end,
+    name,
+    purpose
+){
+
+    const newStart = prompt(
+        "開始時間",
+        start
+    );
+
+    if(!newStart) return;
+
+    const newEnd = prompt(
+        "終了時間",
+        end
+    );
+
+    if(!newEnd) return;
+
+    const newName = prompt(
+        "予約者名",
+        name
+    );
+
+    if(!newName) return;
+
+    const newPurpose = prompt(
+        "用途",
+        purpose
+    );
+
+    if(!newPurpose) return;
+
+    // ========================================
+    // 重複予約チェック
+    // 自分自身は除外
+    // ========================================
+    const overlap = bookings.some(b => {
+
+        // 編集中の元予約は無視
+        if(
+            b.date === dateKey &&
+            b.room === room &&
+            b.start === start &&
+            b.end === end &&
+            b.name === name &&
+            b.purpose === purpose
+        ){
+            return false;
+        }
+
+        if(b.date !== dateKey) return false;
+        if(b.room !== room) return false;
+
+        const editStart =
+            timeToMinutes(newStart);
+
+        const editEnd =
+            timeToMinutes(newEnd);
+
+        const oldStart =
+            timeToMinutes(b.start);
+
+        const oldEnd =
+            timeToMinutes(b.end);
+
+        return (
+            editStart < oldEnd &&
+            editEnd > oldStart
+        );
+
+    });
+
+    if(overlap){
+
+        alert(
+            "その時間帯は既に予約があります"
+        );
+
+        return;
+
+    }
+
+    // 元予約削除
+await deleteBooking(
+    dateKey,
+    room,
+    start,
+    end,
+    name,
+    purpose
+);
+
+    // 新予約登録
+const newBooking = {
+    date: dateKey,
+    room,
+    start: newStart,
+    end: newEnd,
+    name: newName,
+    purpose: newPurpose
+};
+
+bookings.push(newBooking);
+
+await saveBookingToSupabase(
+    newBooking
+);
+
+    render();
+
+}
+
+// ========================================
+// Supabase接続確認
+// ========================================
+async function testConnection(){
+
+    const { data, error } =
+        await sb
+            .from("bookings")
+            .select("*");
+
+    console.log("DATA", data);
+    console.log("ERROR", error);
+
+    if(error) return;
+
+    bookings = data.map(row => ({
+        date: row.booking_date,
+        room: row.room,
+        start: row.start_time,
+        end: row.end_time,
+        name: row.name,
+        purpose: row.purpose
+    }));
+
+    render();
+
+}
+
+// ========================================
+// 起動処理
+// ========================================
+if(
+
+    isLoggedIn()
+
+    ||
+
+    authenticate()
+
+){
+
+    testConnection();
+
+}
+
+</script>
+
+</body>
+</html>
