@@ -246,7 +246,7 @@ const SUPABASE_URL =
     "https://hvmreiucdyvbjteqyzvc.supabase.co";
 
 const SUPABASE_KEY =
-    "sb_publishable_rGJsRFqTU8fkPY0HrlOo8g_8gSSkAZH";
+    "XXXXXXXXXXXXXXXXXXXXXXXX";
 
 const sb =
     window.supabase.createClient(
@@ -365,21 +365,30 @@ function saveBookings(){
 // ========================================
 async function saveBookingToSupabase(booking){
 
-    const { error } =
-        await sb
-            .from("bookings")
-            .insert([
-                {
+    const response =
+        await fetch(
+            "https://aiterukun-api.hassuru-v.workers.dev/addBooking",
+            {
+                method:"POST",
+                headers:{
+                    "Content-Type":"application/json"
+                },
+                credentials:"include",
+                body:JSON.stringify({
                     booking_date: booking.date,
                     room: booking.room,
                     start_time: booking.start,
                     end_time: booking.end,
                     name: booking.name,
                     purpose: booking.purpose
-                }
-            ]);
+                })
+            }
+        );
 
-    console.log("保存エラー", error);
+    console.log(
+        "追加結果",
+        await response.text()
+    );
 
 }
 
