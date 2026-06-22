@@ -944,15 +944,18 @@ await saveBookingToSupabase(
 // ========================================
 async function testConnection(){
 
-    const { data, error } =
-        await sb
-            .from("bookings")
-            .select("*");
+    const response =
+        await fetch(
+            "https://aiterukun-api.hassuru-v.workers.dev/bookings",
+            {
+                credentials:"include"
+            }
+        );
+
+    const data =
+        await response.json();
 
     console.log("DATA", data);
-    console.log("ERROR", error);
-
-    if(error) return;
 
     bookings = data.map(row => ({
         date: row.booking_date,
