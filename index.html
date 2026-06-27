@@ -437,26 +437,39 @@ function isLoggedIn(){
 // ========================================
 // パスワード認証
 // ========================================
-function authenticate(){
+async function authenticate(){
 
     const password = prompt(
         "パスワードを入力してください"
     );
 
-    if(password !== APP_PASSWORD){
-
-        alert("パスワードが違います");
-
+    if(!password){
         return false;
     }
 
-    // ログイン状態保存
-    localStorage.setItem(
-        "loggedIn",
-        "true"
+    const response = await fetch(
+        "https://aiterukun-api.hassuru-v.workers.dev/login",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            credentials: "include",
+            body: JSON.stringify({
+                password
+            })
+        }
     );
 
-    return true;
+    const data = await response.json();
+
+    if(data.success){
+        return true;
+    }
+
+    alert("パスワードが違います");
+
+    return false;
 
 }
 
