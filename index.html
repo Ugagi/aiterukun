@@ -995,19 +995,23 @@ async function testConnection(){
 // ========================================
 // 起動処理
 // ========================================
-if(
+(async () => {
 
-    isLoggedIn()
+    if (
 
-    ||
+        isLoggedIn()
 
-    authenticate()
+        ||
 
-){
+        await authenticate()
 
-    testConnection();
+    ) {
 
-}
+        testConnection();
+
+    }
+
+})();
 
 </script>
 
